@@ -1,16 +1,28 @@
-# This is a sample Python script.
+import json
+import time
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from Backtesting import backtest
+from Strategy_RSI_SMA_RETURN import Strategy_RSI_SMA_RETURN
+from Strategy_LSTM import Strategy_LSTM
+import cbpro
+import pandas as pd
+from datetime import datetime, timedelta
+from CoinbaseAPI import CoinbaseAPI
+
+pd.set_option("display.max_columns", None)
+pd.set_option("display.width", None)
+config_file = "configs/config_trading_bot.json"
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+with open(config_file) as json_data_file:
+    config = json.load(json_data_file)
+client = cbpro.AuthenticatedClient(config["api_public"], config["api_secret"], config["passphrase"])
+api = CoinbaseAPI(client=client, symbol='BTC-EUR')
+df = api.get_minute_data(interval_min=60, lookback=24*60*30*3)
+strat = Strategy_RSI_SMA_RETURN()
 
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+first_training_date = '2021-12-01'
+last_training_date = '2022-02-01'
+strat_lstm = Strategy_LSTM(first_training_date=first_training_date, last_training_date=last_training_date, data=df)
+results = backtest(strat_lstm, df=df)
+print(df)

@@ -9,21 +9,21 @@ class Strategy(object):
     def __init__(self, stop_loss=0.95):
         self.stop_loss = stop_loss
 
-    def buy_signal(self, row, entried):
+    def buy_signal(self, df, entried):
         raise NotImplementedError
 
-    def sell_signal(self, row, entried):
+    def sell_signal(self, df, entried):
         raise NotImplementedError
 
-    def action(self, row, entried=False):
+    def action(self, df, entried=False):
         """
         Determines the action based on the buy and sell signals
 
         Parameters
         ----------
 
-        row : pd.DataFrame
-            The newest row of the trade DataFrame
+        df : pd.DataFrame
+            DataFrame with the latest data
 
         entried : boolean
             Whether we are already entried
@@ -33,8 +33,10 @@ class Strategy(object):
         str
             A string with the action: "BUY", "SELL" or "NO TRADE"
         """
-        buy_signal = self.buy_signal(row, entried)  # RSI SMA strategy
-        sell_signal = self.sell_signal(row, entried)
+
+        row = df.iloc[-1, :]
+        buy_signal = self.buy_signal(df, entried)  # RSI SMA strategy
+        sell_signal = self.sell_signal(df, entried)
 
         # not entried, so try to buy (closed position)
         if not entried and buy_signal:
@@ -42,7 +44,7 @@ class Strategy(object):
 
         # entried, so try to sell at a good price (open position)
         if entried:
-            price_change_since_buying = row.Open / row.last_buying_price
+            price_change_since_buying = row.Close / row.last_buying_price
             if sell_signal:
                 return "SELL"  # sell next open
             elif price_change_since_buying < self.stop_loss:
