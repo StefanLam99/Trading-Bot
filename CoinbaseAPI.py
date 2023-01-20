@@ -17,7 +17,7 @@ class CoinbaseAPI:
         self.cbpro_cols = ["Low", "High", "Open", "Close", "Volume"]
         self.df = pd.DataFrame(columns=self.cbpro_cols)
 
-    def get_minute_data(self, interval_min=1, lookback=24 * 60, max_requests=300):
+    def get_minute_data(self, symbol=None, interval_min=1, lookback=24 * 60, max_requests=300):
         """
         Method to obtain minute data from the Coinbase Pro API
 
@@ -28,7 +28,8 @@ class CoinbaseAPI:
              Symbol of the currency, e.g., "BTC-EUR", "DOT-EUR", "BTC-USD", "DOT-USD"
 
         interval_min : int
-                The interval in minutes between the retrieved timestamps, can only be in the following range [1, 5, 15, 60, 360, 1440]
+                The interval in minutes between the retrieved timestamps, can only be in the following range
+                [1, 5, 15, 60, 360, 1440]
 
         lookback : int
             The number of minutes to lookback starting from the current timestamp
@@ -40,9 +41,9 @@ class CoinbaseAPI:
         -------
         Pandas Dataframe
             a dataframe with the trade data
-
-
         """
+
+        self.symbol = symbol if symbol is not None else self.symbol
 
         interval_sec = interval_min * 60  # interval in seconds
         end = pd.to_datetime(self.client.get_time()["epoch"], unit="s")  # end date

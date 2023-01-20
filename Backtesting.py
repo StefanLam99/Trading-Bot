@@ -1,13 +1,17 @@
+import os.path
+
 import cbpro
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-
+from Utils import check_save_location
+from fpdf import FPDF
 import matplotlib.dates as mdates
 from time import sleep, time
 import ta
 from datetime import datetime, timedelta
 
+# TODO:  fddg
 
 def backtest(strategy, df, capital=1000):
     """
@@ -102,25 +106,27 @@ def backtest(strategy, df, capital=1000):
     ax3.set_xlabel("time")
 
     plt.gcf().autofmt_xdate()
-    plt.show()
+    time_slots = df.index.strftime('%d-%m-%Y')
+    save_path_plots = f'results_backtesting/{strategy.__module__}/plots/{time_slots[0]}_to_{time_slots[-1]}.png'
+    check_save_location(save_path_plots)
+    plt.savefig(save_path_plots)
+
 
     # if there are actual trades retrieve the performance measures
     if len(actual_trades) > 0:
         # performance measures
-        profits = df.loc[actual_trades.selling_date].Open.values - df.loc[actual_trades.buying_date].Open.values
-        winning_rate = np.sum([profits > 0]) / len(profits)
+        wins = (df.loc[actual_trades.selling_date].Open.values - df.loc[actual_trades.buying_date].Open.values) > 0
+        winning_rate = np.sum([wins]) / len(wins)
         returns = (df.loc[actual_trades.selling_date].Open.values - df.loc[actual_trades.buying_date].Open.values) / \
                   df.loc[actual_trades.buying_date].Open.values
 
         # adding performance measures to dataframe
-        actual_trades["profit"] = profits
         actual_trades["return"] = returns
 
         # print results
         print("ACTUAL TRADES:")
         print(actual_trades)
         print("\n")
-        print("profit: %.2f" % sum(profits))
         print("average returns:  %.6f" % (sum(returns) / max(1, len(returns))))
         print("returns:  %.6f" % (np.prod(returns + 1) - 1))
         print("winning rate:  %.2f" % (winning_rate))
@@ -128,8 +134,47 @@ def backtest(strategy, df, capital=1000):
         print("starting capital: %.2f" % capital)
         print("end capital: %.2f" % capital_list[-1])
         print("return: %.6f" % ((capital_list[-1] - capital) / capital))
-        return actual_trades
-    else:
 
+        texts = [f"average returns: {(sum(returns) / max(1, len(returns))):.6f}\n", \
+               f"returns: {(np.prod(returns + 1) - 1):.6f}", \
+               f"winning rate:  {winning_rate:.2f}", \
+               f"starting capital: {capital:.2f}", \
+               f"end capital: {capital_list[-1]:.2f}", \
+               f"return: {(capital_list[-1] - capital) / capital:.6f}"]
+    else:
+        texts = ["NO TRADES HAVE TAKEN PLACE"]
         print("NO TRADES HAVE TAKEN PLACE")
-        return None
+
+    pdf = FPDF(orientation='L')
+    pdf.set_font("Arial", size = 15)
+    pdf.add_page()
+    for text in texts:
+        pdf.cell(200, 10, txt=text, ln=1)
+
+    # actual trades
+    if len(actual_trades) > 0:
+        pdf.set_font("Arial", size=8)
+        actual_trades = actual_trades.round(2)
+        pdf.add_page()
+        for col in list(actual_trades.columns):
+            pdf.cell(40, 13,txt=col, border=1)
+        pdf.ln()
+        for i, row in actual_trades.iterrows():
+            for val in row:
+                pdf.cell(40,13,txt=str(val), border=1)
+            pdf.ln()
+    #pdf.cell(200,10, txt=str(actual_trades))
+    pdf.add_page()
+    pdf.image(save_path_plots, 0, 0, 300, 200)
+    save_path_pdf = f'results_backtesting/{strategy.__module__}/pdfs/{time_slots[0]}_to_{time_slots[-1]}.pdf'
+    check_save_location(save_path_pdf)
+    #if os.path.exists((save_path_pdf)):
+    #    os.remove(save_path_pdf)
+    pdf.output(save_path_pdf)
+
+    return actual_trades
+
+
+
+
+

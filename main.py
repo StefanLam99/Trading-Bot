@@ -21,8 +21,8 @@ api = CoinbaseAPI(client=client, symbol='BTC-EUR')
 df = api.get_minute_data(interval_min=60, lookback=24*60*30*3)
 strat = Strategy_RSI_SMA_RETURN()
 
-first_training_date = '2021-12-01'
-last_training_date = '2022-02-01'
-strat_lstm = Strategy_LSTM(first_training_date=first_training_date, last_training_date=last_training_date, data=df)
-results = backtest(strat_lstm, df=df)
+#first_training_date = '2021-12-01'
+#last_training_date = '2022-02-01'
+#strat_lstm = Strategy_LSTM(first_training_date=first_training_date, last_training_date=last_training_date, data=df)
+results = backtest(strat, df=df)
 print(df)

@@ -86,7 +86,7 @@ class CoinbaseBot(object):
         while (time() - start_time) / 60 < running_time:
 
             df = api.update_minute_data()
-            #row = df.iloc[-1, :].copy()
+            row = df.iloc[-1, :].copy()
             df["last_buying_price"] = last_buying_price
             action = strategy.action(df.copy(), entried=entried)
             current_time = pd.to_datetime(time(), unit="s").strftime("%Y-%m-%d %H:%M")
