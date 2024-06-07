@@ -101,6 +101,7 @@ class CoinbaseAPI:
         self.df = pd.concat([self.df, new_df])
         return self.df.copy()
 
+    #TODO fix update_minute data
     def update_minute_data(self):
         """
         Method to update the minute data from the Coinbase Pro API

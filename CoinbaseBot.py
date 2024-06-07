@@ -1,17 +1,34 @@
 import cbpro
 import json
 from Strategy_Base import Strategy
+from strategies.Strategy_RSI_SMA_RETURN import Strategy_RSI_SMA_RETURN
 from CoinbaseAPI import CoinbaseAPI
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from time import time, sleep
+from Utils import convert_time_to_str
 
 
 class CoinbaseBot(object):
 
-    def __init__(self, client):
+    def __init__(self, client, capital, product_id='BTC-EUR'):
         self.client = client
+        self.product_id = product_id
+        self.capital = capital
+        self.api = CoinbaseAPI(client=self.client, symbol=self.product_id)
+        self.df_trades_dict = {"Buy date": [],
+                               "Buy price": [],
+                               "Buy Size": [],
+                               "Buy ID": [],
+                               "Sell date": [],
+                               "Sell price": [],
+                               "Sell ID": [],
+                               "Start capital": [],
+                               "End capital": [],
+                               "Return": [],
+                               "Profit": [],
+                               "Product ID": []}
 
     def get_n_orders(self):
         return len(self.client.get_orders())
@@ -23,7 +40,59 @@ class CoinbaseBot(object):
                 balance = account["balance"]
         return balance
 
-    def run(self, strategy: Strategy, capital, product_id='BTC-EUR', entried=False, lookback=60 * 2,
+    def place_buy_order(self, row, price=None, size=None, price_multiplier=0.97, verbose=1):
+        price = round(row.Close * price_multiplier, 2) if price is None else price
+        size = round(self.capital / price, 6) if size is None else size
+        order = self.client.place_limit_order(product_id=self.product_id, side="buy", price=price,
+                                              size=size)
+        # stats
+        if verbose:
+            print("Placed BUY order with the following details:")
+            print(order)
+            print("\n")
+        return order
+
+    def place_sell_order(self, row, price=None, size=None, price_multiplier=0.995, verbose=1):
+        price = round(row.Close, 2) if price is None else price
+        size = -1 if size is None else size  # TODO: fix this
+        order = self.client.place_limit_order(product_id=self.product_id, side="sell", price=price,
+                                              size=size)
+
+        # stats
+        if verbose:
+            print("Placed SELL order with the following details:")
+            print(order)
+            print("\n")
+        return order
+
+    def update_buy_order(self, order):
+        self.df_trades_dict['Buy date'].append(order['created_at'])
+        self.df_trades_dict['Buy price'].append(order['price'])
+        self.df_trades_dict['Buy size'].append(order['size'])
+        self.df_trades_dict['Buy ID'].append(order['id'])
+
+    def update_sell_order(self, order):
+        self.df_trades_dict['Sell date'].append(order['created_at'])
+        self.df_trades_dict['Sell price'].append(order['price'])
+        self.df_trades_dict['Sell size'].append(order['size'])
+        self.df_trades_dict['Sell ID'].append(order['id'])
+
+    def update_final_order(self):
+        """
+        Update the order trades dict after buying and selling
+        """
+        self.df_trades_dict['Start capital'].append(self.df_trades_dict['Buy size'] * self.df_trades_dict['Buy price'])
+        self.df_trades_dict['End capital'].append(self.df_trades_dict['Sell size'] * self.df_trades_dict['Sell price'])
+        self.df_trades_dict['Profit'].append(self.df_trades_dict['Sell size'] - self.df_trades_dict['Buy price'])
+        self.df_trades_dict['Return'].append((self.df_trades_dict['Sell size'] - self.df_trades_dict['Buy price'])
+                                             / self.df_trades_dict['Buy price'])
+
+    def save_trades(self, path='Trades.csv'):
+        df = pd.DataFrame.from_dict(self.df_trades_dict)
+        df['Product ID'] = self.product_id
+        df.to_csv(path, mode='a')
+
+    def run(self, strategy: Strategy, product_id=None, entried=False, lookback=60 * 2,
             running_time=60 * 2, cancel_time=30):
         """
         Main to run the trading bot
@@ -62,128 +131,82 @@ class CoinbaseBot(object):
         """
 
         # Obtain and initialize the data
-        api = CoinbaseAPI(client=self.client, symbol=product_id)
-        api.get_minute_data(interval_min=1, lookback=lookback)
+        self.api.get_minute_data(interval_min=1, lookback=lookback)
 
         # Initialization
         start_time = time()
-        entried_time = -1
-        unentried_time = -1
         last_buying_price = -1
-
-        if entried:
-            buy_order = {"status": "done"}
-            sell_order = {"status": None}
-        else:
-            buy_order = {"status": None}
-            sell_order = {"status": "done"}
-
-        columns = ["Buy date", "Buy price", "Sell date", "Sell price", "Start capital", "End capital", "Return", "Size",
-                   "Product ID", "Buy ID", "Sell ID"]
-        df_trades = pd.DataFrame(columns=columns)
+        product_id = product_id if product_id is not None else self.product_id
+        order = None
 
         # check the running time
         while (time() - start_time) / 60 < running_time:
 
-            df = api.update_minute_data()
-            row = df.iloc[-1, :].copy()
+            df = self.api.update_minute_data()
+            last_row = df.iloc[-1, :].copy()
             df["last_buying_price"] = last_buying_price
             action = strategy.action(df.copy(), entried=entried)
-            current_time = pd.to_datetime(time(), unit="s").strftime("%Y-%m-%d %H:%M")
-            print("Time: %s, Entried: %s, Action: %s" % (str(current_time), entried, action))
+            current_time_str = convert_time_to_str(time())
+            print("Time: %s, Entried: %s, Action: %s" % (str(current_time_str), entried, action))
 
             # BUYING and SELLING:
             # ------------------------------------------------------------------------------------------------------
             try:
-                if not entried:  # try to buy
-                    if action == "BUY" and sell_order["status"] == "done":
-                        buy_time = pd.to_datetime(time(), unit="s").strftime("%Y-%m-%d %H:%M")
-                        buy_price = round(row.Close * 0.97, 2)
-                        last_buying_price = buy_price
-                        buy_size = round(capital / buy_price, 6)
-                        buy_order = self.client.place_limit_order(product_id=product_id, side="buy", price=buy_price,
-                                                                  size=buy_size)
-                        entried = True
-                        entried_time = time()
+                if order is None:  # no order placed yet
+                    order_time = time()
+                    if not entried and action == "BUY":  # try to buy
+                        order = self.place_buy_order(last_row)
+                    elif entried and action == "SELL":  # try to sell
+                        order = self.place_sell_order(last_row, size=round(prev_order['size'], 6))
 
-                        # stats
-                        print("Placed BUY order with the following details:")
-                        print(buy_order)
-                        print("\n")
+                else:  # check whether the order is done
+                    order = client.get_order(order_id=order['id'])
+                    prev_order = order.copy()  # remember the previous order
+                    if order['status'] == 'done':
+                        if order['side'] == 'buy':  # we bought
+                            entried = True
+                            last_buying_price = order['price']
+                            self.update_buy_order(order)
+                        elif order['side'] == 'sell':  # we sold
+                            entried = False
+                            self.capital = self.get_balance()
+                            self.update_sell_order(order)
+                            self.update_final_order()
 
-                    # cancel SELL order when the cancel time is reached
-                    if (time() - unentried_time) / 60 > cancel_time and sell_order["status"] != "done" and buy_order[
-                        "status"] == "done":
-                        print("Canceled SELL order with the following details:")
-                        print(sell_order)
-                        print("\n")
-                        self.client.cancel_order(sell_order["id"])
-                        entried = True
+                        order = None  # reset the order
 
-                else:  # try to sell
-                    if action == "SELL" and buy_order["status"] == "done":
-                        sell_time = pd.to_datetime(time(), unit="s").strftime("%Y-%m-%d %H:%M")
-                        sell_price = round(row.Open, 2)
-                        sell_size = round(buy_order["size"], 6)
-                        sell_order = self.client.place_limit_order(product_id=product_id, side="sell", price=sell_price,
-                                                                   size=sell_size)
-                        unentried_time = time()
-                        entried = False
-                        capital = sell_price * sell_size * 0.995  # factor 0.995 to ensure we have sufficient funds, since there are fees
-
-                        # stats
-                        print("Placed SELL order with the following details:")
-                        print(sell_order)
-                        print("\n")
-
-                    # cancel BUY order when the cancel time is reached
-                    if (time() - entried_time) / 60 > cancel_time and buy_order["status"] != "done" \
-                            and sell_order["status"] == "done":
+                    if (time() - order_time) / 60 > cancel_time:
                         print("Canceled BUY order with the following details:")
-                        print(buy_order)
-                        print("\n")
-                        self.client.cancel_order(buy_order["id"])
-                        entried = False
-
-                        # we sold if we are not entried here
-                        if not entried:
-                            if buy_order["status"] == "done" and sell_order["status"] == "done":
-                                trade = {"Buy date": buy_time
-                                    , "Buy price": buy_price
-                                    , "Buy ID": buy_order["ID"]
-                                    , "Sell date": sell_time
-                                    , "Sell price": sell_price
-                                    , "Sell ID": sell_order["ID"]
-                                    , "Start capital": buy_size * buy_price
-                                    , "End capital": sell_size * sell_price
-                                    , "Return": (sell_price - buy_price) / buy_price
-                                    , "Size": sell_size
-                                    , "Product ID": product_id}
-                                df_trade = pd.DataFrame(columns=columns)
-                                df_trade = df_trade.append(trade, ignore_index=True)
-                                df_trade.to_csv("Trades.csv", mode="a", header=False)
-                                df_trades = df_trades.append(trade, ignore_index=True)
-
-                        # -------------------------------------------------------------------------------------------------------------------
-
-                sleep(60)
+                        print(order)
+                        self.client.cancel_order(order["id"])
+                        order = None
 
             except Exception as e:
-                print("Time: %s, Entried: %s, Action: %s" % (str(current_time), entried, action))
                 print("An error had occured: ")
                 print(e)
-                sleep(60)
+
+            sleep(60)  # ensure we do not send too many requests to the server
 
         # out of the while loop so...
-        if buy_order["status"] != "done":  # <==> == "open"
-            self.client.cancel_order(buy_order["id"])
-        if sell_order["status"] != "done":
-            self.client.cancel_order(sell_order["id"])
-            self.client.place_market_order(product_id, side="sell", size=sell_order['size'])
+        self.save_trades()
+        if prev_order['side'] == 'buy' and prev_order["status"] != "done":
+            self.client.cancel_order(prev_order["id"])
+
+        if prev_order['side'] == 'sell' and prev_order["status"] != "done":
+            self.client.cancel_order(prev_order["id"])
+            self.client.place_market_order(product_id, side="sell", size=prev_order['size'])
+
         print("Reached end of the allowed running time")
 
-        return df_trades
+        return self.df_trades_dict
 
 
 if __name__ == "__main__":
-    pass
+    config_file = "configs/config_trading_bot.json"
+
+    with open(config_file) as json_data_file:
+        config = json.load(json_data_file)
+    client = cbpro.AuthenticatedClient(config["api_public"], config["api_secret"], config["passphrase"])
+
+    bot = CoinbaseBot(client=client, product_id='BTC-EUR', capital=100)
+    bot.run(strategy=Strategy_RSI_SMA_RETURN(), running_time=720)

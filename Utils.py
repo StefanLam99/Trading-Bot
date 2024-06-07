@@ -13,6 +13,17 @@ def classify(current, future):
     else:  # otherwise... it's a 0!
         return 0
 
+
 def check_save_location(path: str):
     if ~os.path.exists(path):
         os.makedirs('/'.join(path.split('/')[0:-1]), exist_ok=True)
+
+
+def convert_time_to_str(time, format="%Y-%m-%d %H:%M"):
+    """
+    :param time: float in seconds from the time() module
+    :param format: format of the time
+    :return:
+    """
+    return pd.to_datetime(time, unit="s").strftime(format)
+

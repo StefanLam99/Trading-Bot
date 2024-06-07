@@ -32,7 +32,7 @@ class Strategy_RSI_SMA_RETURN(Strategy):
 
     def buy_signal(self, df, entried):
         row = df.iloc[-1, :]
-        return (row.Close > row.SMA60) & \
+        return (row.EMA50 > row.EMA200) & \
                (row.RSI < self.RSI_buy) & \
                (row.CUM_RETURNS_60 > self.returns_buy)
 
